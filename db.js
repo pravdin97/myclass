@@ -119,7 +119,12 @@ Student.belongsToMany(Lesson, {
     through: LessonStudent, 
     foreignKey: 'student_id',
 })
-
+// Student.belongsTo(LessonStudent, {
+//     foreignKey: 'student_id'
+// })
+LessonStudent.belongsTo(Student, {
+    foreignKey: 'student_id'
+})
 // Lesson.belongsToMany(Student, {
 //     through: 'lesson_students',
 //     foreignKey: 'lesson_id',

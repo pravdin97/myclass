@@ -8,13 +8,14 @@ const app = new Koa()
 app.use(koaBody({
     jsonLimit: '1kb'
 }))
+let name = process.env.DBUSER
 
 const { Lesson } = require('./db')
 const { Teacher } = require('./db')
 const { Student } = require('./db')
 const { LessonStudent } = require('./db')
 const { Op } = require('./db')
-const sequelize = require('./db')
+const { sequelize } = require('./db')
  
 app.use(async (ctx, next) => {
     await next()
@@ -75,14 +76,13 @@ app.use(_.get('/', async ctx => {
     options['include'] = [{
         model: Teacher, 
         where: teacherIncludeWhereClause,
-        as: 'teachers'
+        as: 'teachers',
+        
     }, {
         model: Student,
-        // attributes: {include: LessonStudent, attributes: ['visit'], where: {visit: true}},
-        as: 'students'
+        as: 'students',
     }]
     let where = {}
-    
     // date here
     if (date !== undefined) {
         let dateValue = date.split(',')
@@ -112,6 +112,26 @@ app.use(_.get('/', async ctx => {
     
     let result = await Lesson.findAll(options)
     console.log(result)
+
+    // set required view
+    for (let i = 0; i < result.length; i++) {
+        let visitCount = 0
+        for (let j = 0; j < result[i].students.length; j++) {
+            let v = result[i].students[j].LessonStudent.visit
+            if (v)
+                visitCount++
+            let st = result[i].students[j]
+            st.dataValues.visit = v
+            delete st.dataValues.LessonStudent
+        }
+
+        result[i].dataValues.visitCount = visitCount
+
+        for (let j = 0; j < result[i].teachers.length; j++) {
+            let te = result[i].teachers[j]
+            delete te.dataValues.lesson_teachers
+        }
+    }
 
     ctx.body = result
 }))
@@ -152,7 +172,7 @@ app.use(_.post('/lessons', async ctx => {
             let currDate = startDate
             let count = 0
             while (count < lessonsCount) {
-                if (currDate.getMilliseconds() - startDate.getMilliseconds() > YEAR)
+                if (currDate.getTime() - startDate.getTime() > YEAR)
                     break
                 if (days.includes(currDate.getDay())) {
                     let lesson = await Lesson.create({
@@ -172,7 +192,9 @@ app.use(_.post('/lessons', async ctx => {
         // if we have lastDate
         if (lastDate !== undefined) {
             const finishDate = new Date(lastDate)
-            if (startDate.getMilliseconds() - finishDate.getMilliseconds() < YEAR) {
+            let ms = finishDate.getTime() - startDate.getTime()
+
+            if (finishDate.getTime() - startDate.getTime()  < YEAR) {
                 let currDate = startDate
                 let count = 0
                 while (currDate < finishDate) {
@@ -192,7 +214,7 @@ app.use(_.post('/lessons', async ctx => {
                     }
                     currDate.setDate(currDate.getDate() + 1)
                 }
-            }
+            } else {}
         }
 
     } else throw('invalid request')
