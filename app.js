@@ -8,14 +8,11 @@ const app = new Koa()
 app.use(koaBody({
     jsonLimit: '1kb'
 }))
-let name = process.env.DBUSER
 
 const { Lesson } = require('./db')
 const { Teacher } = require('./db')
 const { Student } = require('./db')
-const { LessonStudent } = require('./db')
 const { Op } = require('./db')
-const { sequelize } = require('./db')
  
 app.use(async (ctx, next) => {
     await next()
@@ -31,33 +28,24 @@ app.use(async (ctx, next) => {
 })
 
 // =============== ROUTES ==================
-app.use(_.get('/hello', ctx => {
-    ctx.body = 'Hello World!'
-}))
 
 app.use(_.get('/', async ctx => {
     const date = ctx.query.date, 
         status = parseInt(ctx.query.status), 
         teacherIds = ctx.query.teacherIds, 
-        studentCount = ctx.query.studentCount, 
+        studentCount = ctx.query.studentsCount, 
         page = parseInt(ctx.query.page)
 
+    if (isNaN(status) && ctx.query.status !== undefined)
+        ctx.throw(400,'Invalid status value')
+    if (isNaN(page) && ctx.query.page !== undefined)
+        ctx.throw(400,'Invalid page value')
+
     let lessonsPerPage = parseInt(ctx.query.lessonsPerPage)
+    if (isNaN(lessonsPerPage) && ctx.query.lessonsPerPage !== undefined)
+        ctx.throw(400,'Invalid lessonsPerPage value')
     
     let options = {}
-    let studentIncludeWhereClause = {}
-    if (studentCount !== undefined) {
-        let students = studentCount.split(',')
-
-        if (students.length !== 1) {
-            
-        } else {
-            let studentsCount = parseInt(students) 
-            studentIncludeWhereClause = {
-                
-            }
-        }
-    }
 
     let teacherIncludeWhereClause = {}
     if (teacherIds !== undefined) {
@@ -83,34 +71,55 @@ app.use(_.get('/', async ctx => {
         as: 'students',
     }]
     let where = {}
-    // date here
+    
+    
+    // date
     if (date !== undefined) {
         let dateValue = date.split(',')
         
-        if (dateValue.length !== 1) {
+        if (dateValue.length === 2) {
             where['date'] = {
                 [Op.between]: dateValue
             }
-        } else {
+        } else if (dateValue.length === 1) {
             where['date'] = dateValue[0]
-        }
+        } else ctx.throw(400, 'Invalid date value')
     }
     
-    if (!isNaN(status)) 
-        where['status'] = status
+    where['status'] = status
 
     // add where clause
     options['where'] = where
 
     // pagination
-    if (isNaN(lessonsPerPage))
-            lessonsPerPage = 5
     if (!isNaN(page)) {
+        if (isNaN(lessonsPerPage))
+            lessonsPerPage = 5
         options['offset'] = (page - 1) * lessonsPerPage
     }
-    options['limit'] = lessonsPerPage
+    if (!isNaN(lessonsPerPage))
+        options['limit'] = lessonsPerPage
     
     let result = await Lesson.findAll(options)
+
+    // check students count
+    if (studentCount !== undefined) {
+        let numStudents = studentCount.split(',')
+
+        if (numStudents.length === 2) {
+            numStudents[0] = parseInt(numStudents[0])
+            numStudents[1] = parseInt(numStudents[1])
+
+            result = result.filter(les => 
+                les.dataValues.students.length >= numStudents[0] && 
+                les.dataValues.students.length <= numStudents[1])
+            
+        } else if (numStudents.length === 1) {
+            let num = parseInt(numStudents[0])
+            result = result.filter(les => les.dataValues.students.length === num)
+        } else ctx.throw(400,'Invalid studentsCount parameter')
+    }
+
     console.log(result)
 
     // set required view
@@ -145,8 +154,16 @@ app.use(_.post('/lessons', async ctx => {
         lessonsCount = ctx.request.body.lessonsCount,
         lastDate = ctx.request.body.lastDate
 
+    teachers = teachers.map(t => parseInt(t))
+    if (teachers.includes(NaN))
+        ctx.throw(400, 'Invalid teacher ids')
+    
+    days = days.map(d => parseInt(d))
+    if (days.includes(NaN))
+        ctx.throw(400, 'Invalid days value')
+
+    let ids = []
     if (firstDate !== undefined) {
-        let ids = []
         const startDate = new Date(firstDate)
         const YEAR = 31536000000
         const DAYSLIMIT = 300
@@ -161,7 +178,7 @@ app.use(_.post('/lessons', async ctx => {
 
         // check correct values
         if (lessonsCount !== undefined && lastDate !== undefined)
-            throw('set lessonsCount OR lastDate')
+            ctx.throw(400, 'Set lessonsCount OR lastDate')
         
         // if we have lessonsCount
         if (lessonsCount !== undefined) {
@@ -217,12 +234,13 @@ app.use(_.post('/lessons', async ctx => {
             } else {}
         }
 
-    } else throw('invalid request')
+    } else ctx.throw(400, 'Set firstDate')
+    ctx.body = ids
 }))
-
 
 app.on('error', (err, ctx) => {
     console.log('server error', err, ctx)
+    // ctx.throw(400, 'Error 400: ' + err)
 })
 
 app.listen(3000)
