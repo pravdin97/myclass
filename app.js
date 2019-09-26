@@ -117,7 +117,8 @@ app.use(_.get('/', async ctx => {
 }))
 
 app.use(_.post('/lessons', async ctx => {
-    const teachers = ctx.request.body.teacherIds,
+
+    let teachers = ctx.request.body.teacherIds,
         title = ctx.request.body.title,
         days = ctx.request.body.days,
         firstDate = ctx.request.body.firstDate,
@@ -125,12 +126,75 @@ app.use(_.post('/lessons', async ctx => {
         lastDate = ctx.request.body.lastDate
 
     if (firstDate !== undefined) {
-        let lesson = Lesson.build({
-            title: title,
-            status: 0,
+        let ids = []
+        const startDate = new Date(firstDate)
+        const YEAR = 31536000000
+        const DAYSLIMIT = 300
 
+        const associatedTeachers = await Teacher.findAll({
+            where: {
+                id: { 
+                    [Op.or]: teachers
+                }
+            }
         })
-        lesson.get('title')
+
+        // check correct values
+        if (lessonsCount !== undefined && lastDate !== undefined)
+            throw('set lessonsCount OR lastDate')
+        
+        // if we have lessonsCount
+        if (lessonsCount !== undefined) {
+            // limit
+            if (lessonsCount > DAYSLIMIT)
+                lessonsCount = DAYSLIMIT
+            
+            let currDate = startDate
+            let count = 0
+            while (count < lessonsCount) {
+                if (currDate.getMilliseconds() - startDate.getMilliseconds() > YEAR)
+                    break
+                if (days.includes(currDate.getDay())) {
+                    let lesson = await Lesson.create({
+                        title: title,
+                        status: 0,
+                        date: currDate
+                    })
+                    if (associatedTeachers !== null)
+                        lesson.addTeachers(associatedTeachers)
+                    await lesson.save()
+                    ids.push(lesson.get('id'))
+                    count++
+                }
+                currDate.setDate(currDate.getDate() + 1)
+            }
+        } else 
+        // if we have lastDate
+        if (lastDate !== undefined) {
+            const finishDate = new Date(lastDate)
+            if (startDate.getMilliseconds() - finishDate.getMilliseconds() < YEAR) {
+                let currDate = startDate
+                let count = 0
+                while (currDate < finishDate) {
+                    if (count > DAYSLIMIT)
+                        break
+                    if (days.includes(currDate.getDay())) {
+                        const lesson = await Lesson.create({
+                            title: title,
+                            status: 0,
+                            date: currDate
+                        })
+                        if (associatedTeachers !== null)
+                            lesson.addTeachers(associatedTeachers)
+                        await lesson.save()
+                        ids.push(lesson.get('id'))
+                        count++
+                    }
+                    currDate.setDate(currDate.getDate() + 1)
+                }
+            }
+        }
+
     } else throw('invalid request')
 }))
 
